@@ -20,7 +20,7 @@
 <meta name="twitter:description" content="Atspėk lietuvišką dainą iš 0,2 sekundės. Klipai, albumų viršeliai, 60 s iššūkis ir dienos daina. Nemokamai ir be registracijos.">
 <meta name="twitter:image" content="__ORIGIN__/og.png">
 <meta name="theme-color" content="#0b1b28">
-<meta name="app-version" content="v7">
+<meta name="app-version" content="v9">
 <link rel="canonical" href="https://atspekdaina.eu/">
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Atspėk dainą","url":"https://atspekdaina.eu/","description":"Nemokamas lietuviškų dainų spėjimo žaidimas: atspėk dainą iš trumpo klipo.","applicationCategory":"GameApplication","image":"https://atspekdaina.eu/og.png","operatingSystem":"Any","inLanguage":"lt","offers":{"@type":"Offer","price":"0","priceCurrency":"EUR"}}</script>
 <link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" type="image/png" sizes="96x96" href="/favicon.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -232,6 +232,12 @@ body{align-items:flex-start;gap:24px}
 .corners{max-width:calc(100vw - 24px);flex-wrap:wrap;justify-content:flex-end}
 @media (max-width:1199px){.lbtoggle{display:block}.lb{z-index:8;top:64px}body{padding-top:64px}}
 @media (max-width:600px){.lb{top:112px}body{padding-top:112px}}
+.stamp{top:12px;right:8px;font-size:1.5rem;padding:4px 14px;border-width:3px;border-radius:6px}
+@media (max-width:520px){.stamp{font-size:1.15rem;padding:3px 10px}}
+.stamp{top:10px;right:6px;font-size:2.1rem;padding:6px 16px;border-width:4px;letter-spacing:.06em;text-shadow:0 0 16px currentColor;font-weight:900}
+.stamp.ok{color:#3dff9a;background:#062a1acc}.stamp.bad{color:#ff5a4a;background:#2a0b08cc}
+@media (max-width:520px){.stamp{font-size:1.4rem;padding:4px 12px}}
+.mpmsg{font-size:1.5rem;font-weight:800;margin:6px 0;min-height:1.6em}
 </style>
 </head>
 <body>
@@ -240,7 +246,7 @@ body{align-items:flex-start;gap:24px}
 <canvas id="fx"></canvas>
 <div class="toast" id="toast" hidden></div>
 <div class="intro" id="mp" role="dialog" aria-modal="true" hidden><div class="introcard" id="mpBody"></div></div>
-<div class="intro" id="profile" role="dialog" aria-modal="true" hidden><div class="introcard"><h2>Profilis</h2><input type="text" id="nick" maxlength="16" placeholder="Slapyvardis" autocomplete="off"><button class="pp" id="nickBtn2" style="margin-top:8px">Keisti slapyvardį</button><div class="stats" id="stats"></div><div class="badges" id="badges"></div><button class="next" id="profClose">Uždaryti</button></div></div>
+<div class="intro" id="profile" role="dialog" aria-modal="true" hidden><div class="introcard"><h2>Profilis</h2><input type="text" id="nick" maxlength="16" placeholder="Slapyvardis" autocomplete="off" readonly><button class="pp" id="nickBtn2" style="margin-top:8px">Keisti slapyvardį</button><div class="stats" id="stats"></div><div class="badges" id="badges"></div><button class="next" id="profClose">Uždaryti</button></div></div>
 <div class="intro" id="intro" role="dialog" aria-modal="true" aria-labelledby="introT" hidden>
   <div class="introcard">
     <div class="introplay"><svg viewBox="0 0 24 24" width="34" height="34" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></div>
@@ -293,10 +299,10 @@ body{align-items:flex-start;gap:24px}
     <div class="err" id="err" hidden></div>
   </section>
   <div id="reveal" hidden></div>
-  <footer>Muzikos peržiūros: <a href="https://www.deezer.com" target="_blank" rel="noopener">Deezer</a><span id="sup" hidden> · <a id="supA" target="_blank" rel="noopener"> Paremti projektą</a></span><span class="ver"> · v7</span></footer>
+  <footer>Muzikos peržiūros: <a href="https://www.deezer.com" target="_blank" rel="noopener">Deezer</a><span id="sup" hidden> · <a id="supA" target="_blank" rel="noopener"> Paremti projektą</a></span><span class="ver"> · v9</span></footer>
   <p class="seo">Atspėk dainą yra nemokamas lietuvių muzikos žaidimas. Klausykis trumpo dainos klipo, atspėk pavadinimą, žaisk dienos dainą, viršelių režimą arba su draugais.</p>
 </main>
-<aside class="lb" id="lb"><h3>Lyderiai</h3><div class="lbtabs"><button id="lbDay" class="on">Šiandien</button><button id="lbAll">Viso</button></div><ol id="lbList"></ol><input type="text" id="lbNick" maxlength="16" placeholder="Tavo slapyvardis" autocomplete="off"><button class="lbbtn" id="lbNickBtn">Keisti slapyvardį</button><p class="lbhint" id="lbHint"></p></aside>
+<aside class="lb" id="lb"><h3>Lyderiai</h3><div class="lbtabs"><button id="lbDay" class="on">Šiandien</button><button id="lbAll">Viso</button></div><ol id="lbList"></ol><input type="text" id="lbNick" maxlength="16" placeholder="Slapyvardis (spausk, kad pakeistum)" autocomplete="off" readonly><button class="lbbtn" id="lbNickBtn">Keisti slapyvardį</button><p class="lbhint" id="lbHint"></p></aside>
 <script>
 // Įklijuok savo Ko-fi / Buy Me a Coffee / Patreon nuorodą, kad atsirastų „Paremti" mygtukas
 const SUPPORT_URL="";
@@ -443,7 +449,7 @@ function setMode(m){
   $("q").placeholder=m==="cover"?"Ieškok albumo pavadinimo…":"Ieškok dainos pavadinimo…";
 }
 $("modes").onclick=e=>{const b=e.target.closest("button");if(!b||!b.dataset.m)return;$("more").hidden=true;daily=false;setMode(b.dataset.m);chips();newRound();};
-function setPlaying(p){playing=p;$("play").innerHTML=p?PAUSE:PLAY;const pp=$("pp");if(pp)pp.textContent=p?"Sustabdyti peržiūrą":"Groti peržiūrą";$("play").setAttribute("aria-label",p?"Sustabdyti":"Groti");
+function setPlaying(p){playing=p;const mr=document.getElementById("mpRe");if(mr)mr.textContent=p?"Sustabdyti klipą":"Pakartoti klipą";$("play").innerHTML=p?PAUSE:PLAY;const pp=$("pp");if(pp)pp.textContent=p?"Sustabdyti peržiūrą":"Groti peržiūrą";$("play").setAttribute("aria-label",p?"Sustabdyti":"Groti");
   if(!p){const f=$("fill"),m=getComputedStyle(f).transform;f.style.transition="none";f.style.transform=m&&m!=="none"?m:"scaleX(0)";}}
 function stopAudio(){clearTimeout(timer);audio.pause();try{if(revSrc)revSrc.stop()}catch(e){}revSrc=null;setPlaying(false);}
 function prep(cb){
@@ -455,17 +461,18 @@ function prep(cb){
 }
 function playClip(len,fwd){
   if(mode==="reverse"&&revBuf&&!fwd){playRev(len);return}
-  clearTimeout(timer);audio.pause();audio.onseeked=null;
-  const go=()=>{audio.onplaying=null;audio.onseeked=null;audio.muted=false;setFill(len/15*100,len);clearTimeout(timer);timer=setTimeout(stopAudio,len*1000)};
-  const near=()=>Math.abs(audio.currentTime-start)<0.6;
-  audio.onplaying=()=>{if(near())go();else{audio.muted=true;audio.onseeked=go;audio.currentTime=start}};
-  if(near())audio.muted=false;else{audio.muted=true;try{audio.currentTime=start}catch(e){}}
+  clearTimeout(timer);audio.pause();audio.onseeked=null;audio.onplaying=null;
+  let started=false;const near=()=>Math.abs(audio.currentTime-start)<0.4;
+  const begin=()=>{if(started||!near())return;started=true;audio.onplaying=null;audio.onseeked=null;audio.muted=false;setFill(len/15*100,len);clearTimeout(timer);timer=setTimeout(stopAudio,len*1000)};
+  audio.muted=!near();audio.onplaying=begin;audio.onseeked=()=>{if(!audio.paused)begin()};
+  if(!near()){try{audio.currentTime=start}catch(e){}}
   const pr=audio.play();if(pr&&pr.catch)pr.catch(()=>{});setPlaying(true);
 }
 function advance(){if(stage>=STAGES.length-1)return finish(false);stage++;draw();if(mode!=="cover")playClip(STAGES[stage]);}
 let t0=Date.now(),cdIv,pl=null,plk="";
 const played=ld("played",{t:{},a:{}});
 const prof=ld("prof",{nick:"",g:0,w:0,ms:0,days:[],art:{},ach:{},best:0});
+if(!prof.tok){prof.tok=Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,"0")).join("");sv("prof",prof)}
 document.documentElement.dataset.theme=ld("theme","dark");
 async function getPool(){const k=[...on].join("|");if(pl&&plk===k)return pl;pl=await(await fetch("/api/pool?a="+encodeURIComponent(k))).json();plk=k;return pl;}
 async function nextId(kind,excl){
@@ -501,7 +508,7 @@ function openProfile(){
   $("profile").hidden=false;
 }
 $("profBtn").onclick=openProfile;$("profClose").onclick=()=>{$("profile").hidden=true};
-$("nick").oninput=e=>{prof.nick=e.target.value.trim().slice(0,16);sv("prof",prof);$("lbNick").value=prof.nick;loadLb()};
+$("nick").onclick=()=>askNick();
 $("themeBtn").onclick=()=>{const t=document.documentElement.dataset.theme==="light"?"dark":"light";document.documentElement.dataset.theme=t;sv("theme",t)};
 
 /* ----- lyderiai ----- */
@@ -509,23 +516,29 @@ let lbW="day";
 async function loadLb(){$("nickLink").textContent="Slapyvardis: "+(prof.nick||"nenustatytas (spausk)");try{const l=await(await fetch("/api/leaderboard?w="+lbW)).json();
   $("lbList").innerHTML=l.length?l.map(r=>`<li class="${r.n===prof.nick?"me":""}"><span>${esc(r.n)}</span><b>${r.p}</b></li>`).join(""):'<li class="empty">Dar nėra rezultatų</li>';
   $("lbHint").textContent=prof.nick?"":"Įrašyk slapyvardį, kad patektum į lentelę.";}catch(e){$("lbHint").textContent="Lentelė šiuo metu nepasiekiama."}}
-function submitScore(p){if(!prof.nick||!p)return;fetch("/api/score",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({n:prof.nick,p})}).then(loadLb).catch(()=>{})}
+function submitScore(p){if(!prof.nick||!p)return;fetch("/api/score",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({n:prof.nick,p,t:prof.tok})}).then(loadLb).catch(()=>{})}
 $("lbDay").onclick=()=>{lbW="day";$("lbDay").classList.add("on");$("lbAll").classList.remove("on");loadLb()};
 $("lbAll").onclick=()=>{lbW="all";$("lbAll").classList.add("on");$("lbDay").classList.remove("on");loadLb()};
-$("lbNick").value=prof.nick;$("lbNick").oninput=e=>{prof.nick=e.target.value.trim().slice(0,16);sv("prof",prof);loadLb()};
+$("lbNick").value=prof.nick;$("lbNick").onclick=()=>askNick();
 async function syncScore(){
   if(!prof.nick||!score)return;
   try{const r=await(await fetch("/api/me?n="+encodeURIComponent(prof.nick))).json();if((r.p||0)>=score)return;
-    await fetch("/api/score",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({n:prof.nick,p:score,sync:1})});loadLb();}catch(e){}
+    await fetch("/api/score",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({n:prof.nick,p:score,sync:1,t:prof.tok})});loadLb();}catch(e){}
 }
-function askNick(){const n=prompt("Įrašyk slapyvardį (2–16 simbolių):",prof.nick||"");if(n===null)return;
-  prof.nick=n.replace(/[<>&"]/g,"").trim().slice(0,16);sv("prof",prof);$("lbNick").value=prof.nick;$("nick").value=prof.nick;loadLb();syncScore();}
+async function askNick(){
+  const n=prompt("Įrašyk slapyvardį (2–16 simbolių):",prof.nick||"");if(n===null)return;
+  const nn=n.replace(/[<>&"]/g,"").trim().slice(0,16);if(nn.length<2){alert("Slapyvardis per trumpas");return}
+  if(nn===prof.nick)return;
+  if(prof.nick){try{const r=await fetch("/api/rename",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({from:prof.nick,to:nn,t:prof.tok})});
+    if(!r.ok){alert(r.status===409?"Šis vardas jau užimtas. Pasirink kitą.":"Nepavyko pakeisti vardo. Bandyk kitą.");return}}catch(e){}}
+  prof.nick=nn;sv("prof",prof);$("lbNick").value=nn;$("nick").value=nn;loadLb();syncScore();
+}
 $("lbToggle").onclick=e=>{e.stopPropagation();$("lb").classList.toggle("open")};$("lbNick").onchange=syncScore;$("nickLink").onclick=e=>{e.preventDefault();askNick()};$("lbNickBtn").onclick=askNick;$("nickBtn2").onclick=askNick;
 setInterval(loadLb,30000);loadLb();syncScore();
 /* ----- multiplayer ----- */
-let mpMe="",mpC="",mpP="",mpT=null,mpK="",mpOff=0,mpNames=[],mpTO;
+let mpVoted=false,mpMe="",mpC="",mpP="",mpT=null,mpK="",mpOff=0,mpNames=[],mpTO;
 const mpPost=async o=>{try{return await(await fetch("/api/mp",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(o)})).json()}catch(e){return{err:"Nėra ryšio"}}};
-function mpClose(){clearInterval(mpT);clearTimeout(mpTO);mpC="";mpK="";$("mp").hidden=true;newRound();}
+function mpClose(){if(mpC)mpPost({a:"leave",code:mpC,pid:mpP});clearInterval(mpT);clearTimeout(mpTO);mpC="";mpK="";$("mp").hidden=true;newRound();}
 function mpMenu(){
   $("mpBody").innerHTML=`<h2>Multiplayer</h2><input type="text" id="mpName" maxlength="16" placeholder="Tavo vardas" value="${esc(prof.nick)}">
   <div class="mpgrid"><label>Raundai<select id="mpR"><option>5</option><option selected>10</option><option>15</option><option>20</option></select></label><label>Klipo ilgis, s<select id="mpSec"><option>1</option><option>3</option><option selected>5</option><option>10</option><option>15</option></select></label></div>
@@ -548,29 +561,35 @@ async function mpTick(){
   if(s.err){mpClose();toast("Kambarys nerastas");return;}
   mpOff=s.now-Date.now();mpNames=s.names||mpNames;
   const k=s.ph+":"+s.i;if(k!==mpK){mpK=k;mpView(s);}
+  if(s.ph==="play"&&$("mpT")&&s.cur){const el=(Date.now()+mpOff-s.cur.t0)/1000;$("mpT").textContent=el<0?"Prasideda už "+Math.ceil(-el)+" s":"Liko spėlioti: "+Math.max(0,Math.ceil(s.limit-el))+" s";
+    if(!mpVoted&&$("mpSkip"))$("mpSkip").textContent="Balsuoti už praleidimą ("+s.votes+"/"+(Math.floor(s.pl.length/2)+1)+")";}
   mpPlayers(s);
 }
 function mpClip(s,again){
   const c=s.cur;revBuf=null;clearTimeout(mpTO);stopAudio();start=c.start;audio.src=c.preview;audio.volume=vol;audio.load();
-  prep(()=>{mpTO=setTimeout(()=>{if($("mpMsg"))$("mpMsg").textContent="Klausyk...";playClip(s.secs);
-    setTimeout(()=>{if($("mpMsg"))$("mpMsg").textContent="Spėk dainą"},s.secs*1000)},again?0:Math.max(0,c.t0-(Date.now()+mpOff)))});
+  prep(()=>{mpTO=setTimeout(()=>{{const m=$("mpMsg");if(m&&m.className==="mpmsg")m.textContent="Klausyk...";}playClip(s.secs);
+    setTimeout(()=>{{const m=$("mpMsg");if(m&&m.className==="mpmsg")m.textContent="Spėk dainą"}},s.secs*1000)},again?0:Math.max(0,c.t0-(Date.now()+mpOff)))});
 }
 function mpPlayers(s){const e=$("mpPl");if(!e)return;
   e.innerHTML=(s.ph==="lobby"?`<p class="introsub">Žaidėjai (${s.pl.length})</p>`:"")+s.pl.map(p=>`<div class="lbrow"><span>${esc(p.n)}${s.ph==="play"&&p.d?" (atsakė)":""}</span><b>${p.s}</b></div>`).join("");}
 function mpView(s){
   const B=$("mpBody"),pl='<div id="mpPl"></div>';
   if(s.ph==="lobby"){
-    B.innerHTML=`<h2>Kambarys</h2><div class="mpcode">${s.code}</div><p class="introsub">Duok šį kodą draugams (gali pradėti ir vienas). Raundai: ${s.n}, klipas: ${s.secs} s${s.one?", vienas spėjimas":""}</p>${pl}${s.host?'<button class="next" id="mpGo">Pradėti</button>':'<p class="introsub">Laukiama šeimininko...</p>'}<button class="pp" id="mpX">Išeiti</button>`;
+    B.innerHTML=`<h2>Kambarys</h2><div class="mpcode">${s.code}</div><button class="pp" id="mpCopy">Kopijuoti kodą</button><p class="introsub">Duok šį kodą draugams (gali pradėti ir vienas). Raundai: ${s.n}, klipas: ${s.secs} s${s.one?", vienas spėjimas":""}</p>${pl}${s.host?'<button class="next" id="mpGo">Pradėti</button>':'<p class="introsub">Laukiama šeimininko...</p>'}<button class="pp" id="mpX">Išeiti</button>`;
+    $("mpCopy").onclick=async()=>{try{await navigator.clipboard.writeText(s.code);$("mpCopy").textContent="Nukopijuota!"}catch(e){prompt("Kodas:",s.code)}};
     if(s.host)$("mpGo").onclick=async()=>{$("mpGo").disabled=true;$("mpGo").textContent="Pradedama...";const r=await mpPost({a:"start",code:mpC,pid:mpP});if(r.err){$("mpGo").disabled=false;$("mpGo").textContent="Pradėti";toast(r.err)}};
   }else if(s.ph==="play"){
-    B.innerHTML=`<h2>Raundas ${s.i+1} / ${s.n}</h2><p class="introsub" id="mpMsg">Pasiruošk...</p><button class="pp" id="mpRe">Pakartoti klipą</button><input type="text" id="mpQ" placeholder="Ieškok dainos pavadinimo..." autocomplete="off"><div class="mpres" id="mpS"></div>${pl}<button class="pp" id="mpX">Išeiti</button>`;
-    mpClip(s);$("mpRe").onclick=()=>mpClip(s,true);let st;
+    B.innerHTML=`<h2>Raundas ${s.i+1} / ${s.n}</h2><p class="mpmsg" id="mpMsg">Pasiruošk...</p><div class="introsub" id="mpT"></div><button class="pp" id="mpRe">Groti klipą</button><label class="vol">Garsas <input type="range" id="mpVol" min="0" max="1" step="0.01"></label><input type="text" id="mpQ" placeholder="Ieškok dainos pavadinimo..." autocomplete="off"><div class="mpres" id="mpS"></div>${pl}<button class="pp" id="mpSkip">Balsuoti už praleidimą</button><button class="pp" id="mpX">Išeiti</button>`;
+    mpVoted=false;mpClip(s);$("mpRe").onclick=()=>{if(playing)stopAudio();else mpClip(s,true)};
+    $("mpVol").value=vol;$("mpVol").oninput=e=>{vol=+e.target.value;audio.volume=vol;sv("vol",vol)};if(/iPad|iPhone|iPod/.test(navigator.userAgent))$("mpVol").parentElement.hidden=true;
+    $("mpSkip").onclick=()=>{mpPost({a:"vote",code:mpC,pid:mpP});mpVoted=true;$("mpSkip").disabled=true;$("mpSkip").textContent="Balsavai už praleidimą"};
+    let st;
     $("mpQ").oninput=e=>{clearTimeout(st);const v=e.target.value.trim();if(v.length<2){$("mpS").innerHTML="";return}
       st=setTimeout(async()=>{try{const l=await(await fetch("/api/search?q="+encodeURIComponent(v)+"&a="+encodeURIComponent(mpNames.join("|")))).json();
         $("mpS").innerHTML=l.map((t,i)=>`<button data-i="${i}">${esc(t.title)} <small>${esc(t.artist)}</small></button>`).join("");$("mpS").list=l;}catch(err){}},250)};
     $("mpS").onclick=async e=>{const b=e.target.closest("button");if(!b)return;const t=$("mpS").list[+b.dataset.i];$("mpS").innerHTML="";$("mpQ").value="";
       const r=await mpPost({a:"guess",code:mpC,pid:mpP,tid:t.id,title:t.title,artist:t.artist});
-      $("mpMsg").textContent=r.ok?"Teisingai!":r.locked?"Neteisingai. Daugiau spėjimų nėra":"Neteisingai, bandyk dar";if(r.ok||r.locked)$("mpQ").disabled=true;};
+      const mm=$("mpMsg");mm.textContent=r.ok?"Teisingai!":(r.locked?"Neteisingai (−10). Daugiau spėjimų nėra":"Neteisingai (−10), bandyk dar");mm.className="mpmsg "+(r.ok?"ok":"bad");if(r.ok||r.locked)$("mpQ").disabled=true;};
   }else if(s.ph==="reveal"){
     clearTimeout(mpTO);clearTimeout(timer);audio.pause();const c=s.cur||{};
     B.innerHTML=`<h2>${esc(c.title||"")}</h2><p class="introsub">${esc(c.artist||"")}${c.album?" · "+esc(c.album):""}</p>${c.cover?`<img class="big" src="${esc(c.cover)}" alt="">`:""}${pl}<button class="pp" id="mpX">Išeiti</button>`;
@@ -589,7 +608,7 @@ async function hlStart(){
 }
 const hlCard=(t,show)=>`<div class="hlc">${t.cover?`<img src="${esc(t.cover)}" alt="">`:""}<b>${esc(t.title)}</b><small>${esc(t.artist)}</small><div class="hlr">${show?t.rank.toLocaleString("lt-LT"):"?"}</div></div>`;
 function hlView(){
-  $("reveal").innerHTML=`<div class="rev"><h2>Daugiau ar mažiau?</h2><p>Ar dešinės dainos „${esc(hl.a.metric||"populiarumo balas")}“ didesnis nei kairės?</p><p class="introsub">${hl.a.metric&&hl.a.metric.startsWith("Last.fm")?"Skaičiai iš Last.fm: juos pateikia tik ten klausantys žmonės, todėl jie mažesni nei Spotify.":"Tai Deezer vidinis populiarumo balas, o ne tikslus klausymų skaičius."}</p><div class="hlrow">${hlCard(hl.a,1)}${hlCard(hl.b,0)}</div><div class="two"><button class="next" id="hlUp">Daugiau</button><button class="next" id="hlDn">Mažiau</button></div><p>Serija: <b>${hl.s}</b> · Rekordas: <b>${prof.hl||0}</b></p></div>`;
+  $("reveal").innerHTML=`<div class="rev"><h2>Daugiau ar mažiau?</h2><p>Ar dešinės dainos „${esc(hl.a.metric||"populiarumo balas")}“ didesnis nei kairės?</p><p class="introsub">${hl.a.metric&&hl.a.metric.startsWith("YouTube")?"Skaičiai: oficialių YouTube klipų peržiūros.":hl.a.metric&&hl.a.metric.startsWith("Last.fm")?"Skaičiai iš Last.fm: juos pateikia tik ten klausantys žmonės, todėl jie mažesni nei Spotify.":"Tai Deezer vidinis populiarumo balas, o ne tikslus klausymų skaičius."}</p><div class="hlrow">${hlCard(hl.a,1)}${hlCard(hl.b,0)}</div><div class="two"><button class="next" id="hlUp">Daugiau</button><button class="next" id="hlDn">Mažiau</button></div><p>Serija: <b>${hl.s}</b> · Rekordas: <b>${prof.hl||0}</b></p></div>`;
   $("hlUp").onclick=()=>hlGuess(1);$("hlDn").onclick=()=>hlGuess(-1);
 }
 function hlGuess(d){

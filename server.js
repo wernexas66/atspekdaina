@@ -1,6 +1,6 @@
 // Paleisk: node server.js  ->  http://localhost:3000   (reikia Node 18+, jokių paketų diegti nereikia)
 const http=require("http"),fs=require("fs"),path=require("path");
-const PORT=process.env.PORT||3000, DZ="https://api.deezer.com";
+const PORT=process.env.PORT||3000, DZ=process.env.DZ_BASE||"https://api.deezer.com";
 // Numatyti atlikėjai. Daugiau galima pridėti pačiame puslapyje.
 const ARTISTS=["OG Version","Jazzu","Andrius Mamontovas","Monika Liu","Justinas Jarutis","Jessica Shy","Vaidas Baumila","G&G Sindikatas","Lemon Joy","Foje","Mia","Leon Somov"];
 const norm=x=>(x||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim();
@@ -83,7 +83,7 @@ async function search(q,names,album){
   return(await pool(names)).filter(t=>norm(t.title+" "+t.artist).includes(v)).slice(0,8);
 }
 // ---- lyderių lentelė (nuolatinė, jei nustatytas Upstash Redis; kitaip tik atmintyje) ----
-const LF=process.env.LASTFM_API_KEY||"",LM=process.env.LASTFM_METRIC==="listeners"?"listeners":"playcount";
+const LF=process.env.HL_SOURCE==="lastfm"?(process.env.LASTFM_API_KEY||""):"",LM=process.env.LASTFM_METRIC==="listeners"?"listeners":"playcount";
 const day=()=>new Date().toLocaleDateString("sv",{timeZone:"Europe/Vilnius"});
 const UP=process.env.UPSTASH_REDIS_REST_URL,UT=process.env.UPSTASH_REDIS_REST_TOKEN,mem={},hits=new Map();
 const rc=async a=>(await(await fetch(UP,{method:"POST",headers:{Authorization:"Bearer "+UT},body:JSON.stringify(a)})).json()).result;
@@ -94,7 +94,20 @@ async function lbSet(n,p){if(UP)await rc(["ZADD","lb:all","GT",p,n]);else{mem["l
 async function lbDel(n){for(const k of["lb:all","lb:"+day()]){if(UP)await rc(["ZREM",k,n]);else if(mem[k])delete mem[k][n]}}
 // draudžiami žodžiai: Render Environment kintamasis BANNED_WORDS (atskirti kableliais)
 const BAD=(process.env.BANNED_WORDS||"").split(",").map(x=>x.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,"")).filter(Boolean);
-const isBad=n=>{const t=n.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,"");return BAD.some(w=>t.includes(w))};
+const isBad=n=>{const t=n.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,"");return BAD.concat(banned.map(normW)).filter(Boolean).some(w=>t.includes(w))};
+
+const own={};let banned=[];
+async function ownGet(n){return UP?await rc(["HGET","owners",n]):own[n]}
+async function ownSet(n,t){if(UP)await rc(["HSET","owners",n,t]);else own[n]=t}
+async function ownDel(n){if(UP)await rc(["HDEL","owners",n]);else delete own[n]}
+async function claim(n,t){const o=await ownGet(n);if(o==null||o===""){await ownSet(n,t||"");return true}return o===(t||"")}
+async function lbScore(k,n){if(UP){const r=await rc(["ZSCORE",k,n]);return r==null?0:+r}return(mem[k]||{})[n]||0}
+async function lbPut(k,n,p){if(UP)await rc(["ZADD",k,p,n]);else{mem[k]=mem[k]||{};mem[k][n]=p}}
+async function lbRem(k,n){if(UP)await rc(["ZREM",k,n]);else if(mem[k])delete mem[k][n]}
+async function lbRename(a,b){for(const k of["lb:all","lb:"+day()]){const s=await lbScore(k,a);if(s>0){await lbRem(k,a);await lbPut(k,b,(await lbScore(k,b))+s)}}}
+async function lbClear(k){if(UP)await rc(["DEL",k]);else delete mem[k]}
+async function loadBans(){if(UP){try{banned=(await rc(["SMEMBERS","ban"]))||[]}catch(e){}}}
+const normW=x=>String(x).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,"");
 const readJ=async r=>{let b="";for await(const c of r){b+=c;if(b.length>2000)break}try{return JSON.parse(b)}catch(e){return{}}};
 const originOf=req=>{let h=req.headers["x-forwarded-host"]||req.headers.host||"";if(!/^[a-z0-9.-]+(:\d+)?$/i.test(h))h="atspekdaina.eu";return(/^(localhost|127\.)/.test(h)?"http://":"https://")+h};
 // ---- multiplayer kambariai (atmintyje) ----
@@ -104,19 +117,21 @@ async function mpRound(r){
   while(r.i<r.ids.length){id=r.ids[r.i];f=await dz("/track/"+id,true);if(f.preview)break;r.i++}
   if(r.i>=r.ids.length){r.phase="final";return false}
   r.cur={id,title:f.title_short||f.title||"?",artist:(f.artist&&f.artist.name)||"",album:f.album&&f.album.title,cover:f.album&&(f.album.cover_big||f.album.cover_medium),preview:f.preview,start:Math.random()*14,t0:Date.now()+3000};
-  r.phase="play";for(const p of Object.values(r.players))p.ans=0;return true;
+  r.phase="play";r.votes=new Set();for(const p of Object.values(r.players))p.ans=0;return true;
 }
 async function mpState(r,pid){
   const now=Date.now(),P=Object.values(r.players);
-  if(r.phase==="play"&&(now>r.cur.t0+25000||P.every(p=>p.ans))){r.phase="reveal";r.rt=now}
-  else if(r.phase==="reveal"&&now>r.rt+6000&&!r.busy){r.busy=1;try{if(++r.i>=r.ids.length)r.phase="final";else await mpRound(r)}finally{r.busy=0}}
+  const skip=r.votes&&r.votes.size*2>P.length;
+  if(r.phase==="play"&&(now>r.cur.t0+25000||P.every(p=>p.ans)||skip)){r.phase="reveal";r.rt=now;r.fast=skip||P.every(p=>p.ans===2)}
+  else if(r.phase==="reveal"&&now>r.rt+(r.fast?3500:6000)&&!r.busy){r.busy=1;try{if(++r.i>=r.ids.length)r.phase="final";else await mpRound(r)}finally{r.busy=0}}
   const c=r.cur,rev=r.phase==="reveal"&&c,live=c&&(r.phase==="play"||rev);
-  return{ph:r.phase,i:r.i,n:r.ids.length,secs:r.secs,one:r.one,now,host:r.host===pid,code:r.code,names:r.names,
+  return{limit:25,votes:r.votes?r.votes.size:0,ph:r.phase,i:r.i,n:r.ids.length,secs:r.secs,one:r.one,now,host:r.host===pid,code:r.code,names:r.names,
     pl:P.map(p=>({n:p.name,s:p.score,d:!!p.ans})).sort((a,b)=>b.s-a.s),
     cur:live?{preview:c.preview,start:c.start,t0:c.t0,...(rev?{title:c.title,artist:c.artist,album:c.album,cover:c.cover}:{})}:null};
 }
-const VER="v7";
+const VER="v9";
 const ap=n=>[path.join(__dirname,"public",n),path.join(__dirname,n)].find(p=>fs.existsSync(p))||path.join(__dirname,"public",n);
+let YT={};try{YT=JSON.parse(fs.readFileSync(ap("youtube.json"),"utf8"))}catch(e){}
 const send=(res,code,obj)=>{res.writeHead(code,{"Content-Type":"application/json; charset=utf-8"});res.end(JSON.stringify(obj))};
 const server=http.createServer(async(req,res)=>{
   const u=new URL(req.url,"http://x"),q=u.searchParams,n=(q.get("a")||"").split("|").filter(Boolean),names=n.length?n:ARTISTS;
@@ -133,15 +148,29 @@ const server=http.createServer(async(req,res)=>{
       if(h.length>=40)return send(res,429,{error:"Per daug"});h.push(t);hits.set(ip,h);
       const j=await readJ(req),n=String(j.n||"").replace(/[<>&"]/g,"").trim().slice(0,16),p=Math.round(+j.p);
       if(n.length<2||isBad(n))return send(res,400,{error:"Netinka"});
+      if(!(await claim(n,String(j.t||"").slice(0,40))))return send(res,403,{error:"Vardas užimtas"});
       if(j.sync){await lbSet(n,Math.min(100000,Math.max(0,p)));return send(res,200,{ok:1})}
       if(!(p>=1&&p<=5))return send(res,400,{error:"Netinka"});await lbAdd(n,p);return send(res,200,{ok:1});
+    }
+    if(u.pathname==="/api/rename"&&req.method==="POST"){
+      const j=await readJ(req),t=String(j.t||"").slice(0,40),f=String(j.from||"").trim().slice(0,16),n2=String(j.to||"").replace(/[<>&"]/g,"").trim().slice(0,16);
+      if(n2.length<2||isBad(n2))return send(res,400,{error:"Netinka"});
+      const of=await ownGet(f);if(of!=null&&of!==""&&of!==t)return send(res,403,{error:"Ne tavo vardas"});
+      const on2=await ownGet(n2);if(on2!=null&&on2!==""&&on2!==t)return send(res,409,{error:"Vardas užimtas"});
+      await lbRename(f,n2);await ownSet(n2,t);if(f!==n2)await ownDel(f);return send(res,200,{ok:1});
     }
     if(u.pathname==="/admin"){try{res.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});return res.end(fs.readFileSync(ap("admin.html")))}catch(e){return send(res,404,{error:"Nerasta"})}}
     if(u.pathname==="/api/admin"&&req.method==="POST"){
       const j=await readJ(req);if(!process.env.ADMIN_KEY)return send(res,403,{error:"Serveryje nenustatytas ADMIN_KEY (Render Environment)"});
       if(j.key!==process.env.ADMIN_KEY)return send(res,403,{error:"Neteisingas raktas"});
-      if(j.del)await lbDel(String(j.del));
-      return send(res,200,{all:await lbTop("lb:all",200),day:await lbTop("lb:"+day(),200)});
+      if(j.del){await lbDel(String(j.del));await ownDel(String(j.del))}
+      if(j.rename&&j.rename.from&&j.rename.to){const b=String(j.rename.to).replace(/[<>&"]/g,"").trim().slice(0,16);if(b.length>=2){await lbRename(String(j.rename.from),b);const o=await ownGet(String(j.rename.from));await ownDel(String(j.rename.from));if(o!=null)await ownSet(b,o)}}
+      if(j.set&&j.set.n)await lbPut("lb:all",String(j.set.n),Math.max(0,Math.round(+j.set.p||0)));
+      if(j.clear==="day")await lbClear("lb:"+day());
+      if(j.clear==="all")await lbClear("lb:all");
+      if(j.ban){const w=String(j.ban).trim().toLowerCase().slice(0,30);if(w&&!banned.includes(w)){banned.push(w);if(UP)await rc(["SADD","ban",w])}}
+      if(j.unban){banned=banned.filter(x=>x!==j.unban);if(UP)await rc(["SREM","ban",String(j.unban)])}
+      return send(res,200,{all:await lbTop("lb:all",200),day:await lbTop("lb:"+day(),200),banned});
     }
     if(u.pathname==="/api/mp"&&req.method==="POST"){
       const j=await readJ(req),a=j.a,nm=s=>String(s||"").trim().slice(0,16)||"Žaidėjas";
@@ -159,13 +188,18 @@ const server=http.createServer(async(req,res)=>{
       if(a==="start"){if(r.host===j.pid&&r.phase==="lobby"&&!(await mpRound(r))){r.phase="lobby";return send(res,200,{err:"Nepavyko užkrauti dainų"})}return send(res,200,{ok:1})}
       if(a==="guess"){const p=r.players[j.pid];if(!p||r.phase!=="play"||Date.now()<r.cur.t0||p.ans)return send(res,200,{ok:0});
         const ok=String(j.tid)===String(r.cur.id)||(norm(j.title)===norm(r.cur.title)&&norm(j.artist)===norm(r.cur.artist));
-        if(ok){p.ans=2;p.score+=Math.max(10,100-Math.floor((Date.now()-r.cur.t0)/1000)*4)}else if(r.one)p.ans=1;
+        if(ok){p.ans=2;p.score+=Math.max(10,100-Math.floor((Date.now()-r.cur.t0)/1000)*4)}else{p.score=Math.max(0,p.score-10);if(r.one)p.ans=1}
         return send(res,200,{ok:ok?1:0,locked:!ok&&r.one?1:0})}
+      if(a==="vote"){if(r.phase==="play"&&r.players[j.pid]&&r.votes)r.votes.add(j.pid);return send(res,200,{ok:1})}
+      if(a==="leave"){delete r.players[j.pid];const ids=Object.keys(r.players);if(!ids.length)rooms.delete(r.code);else if(r.host===j.pid)r.host=ids[0];return send(res,200,{ok:1})}
       return send(res,200,await mpState(r,j.pid));
     }
     if(u.pathname==="/api/hl"){
       const ex=q.get("ex"),c=(await pool(names)).filter(x=>String(x.id)!==ex);let t,f;
-      const want=q.get("m")||"",needLF=want.startsWith("Last.fm");
+      const want=q.get("m")||"",needLF=want.startsWith("Last.fm"),needYT=want.startsWith("YouTube");
+      if(!want||needYT){const cc=c.filter(x=>YT[x.id]);
+        if(cc.length>=(needYT?1:2)){const t0=cc[Math.random()*cc.length|0];return send(res,200,{id:t0.id,title:t0.title,artist:t0.artist,cover:t0.coverBig||t0.cover,rank:YT[t0.id],metric:"YouTube peržiūrų skaičius"})}
+        if(needYT)return send(res,500,{error:"YouTube duomenų nerasta"})}
       if(LF&&c.length&&(!want||needLF))for(let k=0;k<14;k++){
         t=c[Math.random()*c.length|0];
         try{const r=await(await fetch(`https://ws.audioscrobbler.com/2.0/?method=track.getInfo&autocorrect=1&format=json&api_key=${LF}&artist=${encodeURIComponent(t.artist)}&track=${encodeURIComponent(t.title)}`)).json();
@@ -196,5 +230,30 @@ const server=http.createServer(async(req,res)=>{
   }catch(e){send(res,500,{error:e.message})}
 });
 if(process.argv.includes("--build")){(async()=>{const o={};for(const n of ARTISTS){o[n]=await deepTracks(n);console.log(n+":",o[n].length)}
-  fs.writeFileSync(path.join(__dirname,"songs.json"),JSON.stringify(o));console.log("Išsaugota songs.json");process.exit(0)})();}
-else server.listen(PORT,()=>{console.log("Atidaryk http://localhost:"+PORT);if(Object.keys(SNAP).length<ARTISTS.length)pool(ARTISTS).then(p=>console.log("Paruošta dainų:",p.length)).catch(()=>{})});
+  fs.writeFileSync(path.join(__dirname,"songs.json"),JSON.stringify(o));console.log("Išsaugota songs.json");
+    const YK=process.env.YOUTUBE_API_KEY;
+    if(YK){
+      const yget=async(p,pr)=>{const u=new URL("https://www.googleapis.com/youtube/v3/"+p);for(const k in pr)u.searchParams.set(k,pr[k]);u.searchParams.set("key",YK);return(await fetch(u)).json()};
+      const clean=x=>norm(String(x).replace(/\(.*?\)|\[.*?\]|official.*|music video.*|lyric.*/ig,""));
+      const yt={};
+      for(const n of ARTISTS){
+        try{
+          const s=await yget("search",{part:"snippet",q:n,type:"channel",maxResults:1});const ch=s.items&&s.items[0];if(!ch){console.log("YouTube: nerastas kanalas",n);continue}
+          const cid=(ch.id&&ch.id.channelId)||ch.snippet.channelId;
+          const c=await yget("channels",{part:"contentDetails,snippet",id:cid});const up=c.items&&c.items[0]&&c.items[0].contentDetails.relatedPlaylists.uploads;if(!up)continue;
+          const vids=[];let tok="";
+          for(let i=0;i<10;i++){const pi=await yget("playlistItems",{part:"snippet",playlistId:up,maxResults:50,...(tok?{pageToken:tok}:{})});
+            (pi.items||[]).forEach(x=>vids.push({id:x.snippet.resourceId.videoId,t:x.snippet.title,v:0}));tok=pi.nextPageToken;if(!tok)break}
+          for(let i=0;i<vids.length;i+=50){const vs=await yget("videos",{part:"statistics",id:vids.slice(i,i+50).map(x=>x.id).join(",")});
+            (vs.items||[]).forEach(it=>{const x=vids.find(y=>y.id===it.id);if(x)x.v=+it.statistics.viewCount||0})}
+          const an=norm(n);let cnt=0;
+          for(const tr of o[n]){const tn=clean(tr.title);if(tn.length<3)continue;let best=0;
+            for(const x of vids){const vn=" "+clean(x.t).replace(an," ").replace(/\s+/g," ").trim()+" ";if(x.v&&vn.includes(" "+tn+" "))best=Math.max(best,x.v)}
+            if(best){yt[tr.id]=best;cnt++}}
+          console.log("YouTube:",n,"("+((c.items[0].snippet||{}).title||"?")+")","- surasta peržiūrų dainoms:",cnt);
+        }catch(e){console.log("YouTube klaida",n,e.message)}
+      }
+      fs.writeFileSync(path.join(__dirname,"youtube.json"),JSON.stringify(yt));console.log("Išsaugota youtube.json (dainų:",Object.keys(yt).length+")");
+    }else console.log("YOUTUBE_API_KEY nenustatytas, youtube.json nesukurtas");
+    process.exit(0)})();}
+else server.listen(PORT,()=>{console.log("Atidaryk http://localhost:"+PORT);loadBans();if(Object.keys(SNAP).length<ARTISTS.length)pool(ARTISTS).then(p=>console.log("Paruošta dainų:",p.length)).catch(()=>{})});
