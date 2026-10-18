@@ -20,10 +20,10 @@
 <meta name="twitter:description" content="Atspėk lietuvišką dainą iš 0,2 sekundės. Klipai, albumų viršeliai, 60 s iššūkis ir dienos daina. Nemokamai ir be registracijos.">
 <meta name="twitter:image" content="__ORIGIN__/og.png">
 <meta name="theme-color" content="#0b1b28">
-<meta name="app-version" content="v6">
+<meta name="app-version" content="v7">
 <link rel="canonical" href="https://atspekdaina.eu/">
-<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Atspėk dainą","url":"https://atspekdaina.eu/","description":"Nemokamas lietuviškų dainų spėjimo žaidimas: atspėk dainą iš trumpo klipo.","applicationCategory":"GameApplication","operatingSystem":"Any","inLanguage":"lt","offers":{"@type":"Offer","price":"0","priceCurrency":"EUR"}}</script>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b1b28'/%3E%3Ccircle cx='32' cy='32' r='22' fill='%23f2b441'/%3E%3Cpath d='M27 22l16 10-16 10z' fill='%231b1405'/%3E%3C/svg%3E">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Atspėk dainą","url":"https://atspekdaina.eu/","description":"Nemokamas lietuviškų dainų spėjimo žaidimas: atspėk dainą iš trumpo klipo.","applicationCategory":"GameApplication","image":"https://atspekdaina.eu/og.png","operatingSystem":"Any","inLanguage":"lt","offers":{"@type":"Offer","price":"0","priceCurrency":"EUR"}}</script>
+<link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" type="image/png" sizes="96x96" href="/favicon.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap" rel="stylesheet">
 <style>
@@ -228,11 +228,15 @@ body{align-items:flex-start;gap:24px}
  .lb.open{display:block}
  body{padding-top:64px}
 }
+.lbtoggle{position:static;top:auto;left:auto;display:none;background:transparent;font-weight:600}
+.corners{max-width:calc(100vw - 24px);flex-wrap:wrap;justify-content:flex-end}
+@media (max-width:1199px){.lbtoggle{display:block}.lb{z-index:8;top:64px}body{padding-top:64px}}
+@media (max-width:600px){.lb{top:112px}body{padding-top:112px}}
 </style>
 </head>
 <body>
 <div class="bg" aria-hidden="true"></div>
-<div class="corners"><button class="chip" id="profBtn" aria-label="Profilis">Profilis</button><button class="chip" id="themeBtn" aria-label="Tema">Tema</button><button class="chip" id="helpBtn" aria-label="Kaip žaisti">?</button><button class="chip daily" id="dailyBtn" aria-pressed="false">📅 Dienos daina</button></div>
+<div class="corners"><button class="lbtoggle chip" id="lbToggle">Lyderiai</button><button class="chip" id="profBtn" aria-label="Profilis">Profilis</button><button class="chip" id="themeBtn" aria-label="Tema">Tema</button><button class="chip" id="helpBtn" aria-label="Kaip žaisti">?</button><button class="chip daily" id="dailyBtn" aria-pressed="false">📅 Dienos daina</button></div>
 <canvas id="fx"></canvas>
 <div class="toast" id="toast" hidden></div>
 <div class="intro" id="mp" role="dialog" aria-modal="true" hidden><div class="introcard" id="mpBody"></div></div>
@@ -289,10 +293,9 @@ body{align-items:flex-start;gap:24px}
     <div class="err" id="err" hidden></div>
   </section>
   <div id="reveal" hidden></div>
-  <footer>Muzikos peržiūros: <a href="https://www.deezer.com" target="_blank" rel="noopener">Deezer</a><span id="sup" hidden> · <a id="supA" target="_blank" rel="noopener"> Paremti projektą</a></span><span class="ver"> · v6</span></footer>
+  <footer>Muzikos peržiūros: <a href="https://www.deezer.com" target="_blank" rel="noopener">Deezer</a><span id="sup" hidden> · <a id="supA" target="_blank" rel="noopener"> Paremti projektą</a></span><span class="ver"> · v7</span></footer>
   <p class="seo">Atspėk dainą yra nemokamas lietuvių muzikos žaidimas. Klausykis trumpo dainos klipo, atspėk pavadinimą, žaisk dienos dainą, viršelių režimą arba su draugais.</p>
 </main>
-<button class="lbtoggle" id="lbToggle">Lyderiai</button>
 <aside class="lb" id="lb"><h3>Lyderiai</h3><div class="lbtabs"><button id="lbDay" class="on">Šiandien</button><button id="lbAll">Viso</button></div><ol id="lbList"></ol><input type="text" id="lbNick" maxlength="16" placeholder="Tavo slapyvardis" autocomplete="off"><button class="lbbtn" id="lbNickBtn">Keisti slapyvardį</button><p class="lbhint" id="lbHint"></p></aside>
 <script>
 // Įklijuok savo Ko-fi / Buy Me a Coffee / Patreon nuorodą, kad atsirastų „Paremti" mygtukas

@@ -115,7 +115,7 @@ async function mpState(r,pid){
     pl:P.map(p=>({n:p.name,s:p.score,d:!!p.ans})).sort((a,b)=>b.s-a.s),
     cur:live?{preview:c.preview,start:c.start,t0:c.t0,...(rev?{title:c.title,artist:c.artist,album:c.album,cover:c.cover}:{})}:null};
 }
-const VER="v6";
+const VER="v7";
 const ap=n=>[path.join(__dirname,"public",n),path.join(__dirname,n)].find(p=>fs.existsSync(p))||path.join(__dirname,"public",n);
 const send=(res,code,obj)=>{res.writeHead(code,{"Content-Type":"application/json; charset=utf-8"});res.end(JSON.stringify(obj))};
 const server=http.createServer(async(req,res)=>{
@@ -184,7 +184,8 @@ const server=http.createServer(async(req,res)=>{
     if(u.pathname==="/api/pool"){const p=await pool(names);return send(res,200,{t:p.map(x=>x.id),a:[...new Set(p.filter(x=>x.albumId).map(x=>x.albumId))]})}
     if(u.pathname==="/api/round")return send(res,200,await round(names,q.get("daily")==="1",q.get("mode")==="cover",q.get("id"),q.get("album"),q.get("year")==="1",q.get("opts")==="1"));
     if(u.pathname==="/api/search")return send(res,200,await search(q.get("q")||"",q.get("daily")==="1"?ARTISTS:names,q.get("album")==="1"));
-    if(u.pathname==="/og.png"){try{const d=fs.readFileSync(ap("og.png"));res.writeHead(200,{"Content-Type":"image/png","Cache-Control":"public, max-age=86400"});return res.end(d)}catch(e){return send(res,404,{error:"Nerasta"})}}
+    const ST={"/og.png":"image/png","/favicon.png":"image/png","/favicon.ico":"image/x-icon","/apple-touch-icon.png":"image/png"};
+    if(ST[u.pathname]){try{const d=fs.readFileSync(ap(u.pathname.slice(1)));res.writeHead(200,{"Content-Type":ST[u.pathname],"Cache-Control":"public, max-age=86400"});return res.end(d)}catch(e){return send(res,404,{error:"Nerasta"})}}
     // puslapio adresas įrašomas į nuorodų peržiūros (og:) žymas pagal tai, kuriuo adresu atidaryta svetainė
     let host=req.headers["x-forwarded-host"]||req.headers.host||"";if(!/^[a-z0-9.-]+(:\d+)?$/i.test(host))host="atspekdaina.eu";
     const origin=(/^(localhost|127\.)/.test(host)?"http://":"https://")+host;
