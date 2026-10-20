@@ -87,7 +87,7 @@ const LF=process.env.HL_SOURCE==="lastfm"?(process.env.LASTFM_API_KEY||""):"",LM
 const day=()=>new Date().toLocaleDateString("sv",{timeZone:"Europe/Vilnius"});
 const UP=process.env.UPSTASH_REDIS_REST_URL,UT=process.env.UPSTASH_REDIS_REST_TOKEN,mem={},hits=new Map();
 const rc=async a=>(await(await fetch(UP,{method:"POST",headers:{Authorization:"Bearer "+UT},body:JSON.stringify(a)})).json()).result;
-async function lbAdd(n,p){for(const k of["lb:all","lb:"+day()]){if(UP){await rc(["ZINCRBY",k,p,n]);if(k!=="lb:all")await rc(["EXPIRE",k,172800])}else{mem[k]=mem[k]||{};mem[k][n]=(mem[k][n]||0)+p}}}
+async function lbAdd(n,p){p=p*(cfg.mult||1);for(const k of["lb:all","lb:"+day()]){if(UP){await rc(["ZINCRBY",k,p,n]);if(k!=="lb:all")await rc(["EXPIRE",k,172800])}else{mem[k]=mem[k]||{};mem[k][n]=(mem[k][n]||0)+p}}}
 async function lbTop(k,n=10){if(UP){const r=await rc(["ZREVRANGE",k,0,n-1,"WITHSCORES"]),o=[];for(let i=0;i<r.length;i+=2)o.push({n:r[i],p:+r[i+1]});return o}
   return Object.entries(mem[k]||{}).map(([n,p])=>({n,p})).sort((a,b)=>b.p-a.p).slice(0,n)}
 async function lbSet(n,p){if(UP)await rc(["ZADD","lb:all","GT",p,n]);else{mem["lb:all"]=mem["lb:all"]||{};mem["lb:all"][n]=Math.max(mem["lb:all"][n]||0,p)}}
@@ -96,7 +96,9 @@ async function lbDel(n){for(const k of["lb:all","lb:"+day()]){if(UP)await rc(["Z
 const BAD=(process.env.BANNED_WORDS||"").split(",").map(x=>x.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,"")).filter(Boolean);
 const isBad=n=>{const t=n.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,"");return BAD.concat(banned.map(normW)).filter(Boolean).some(w=>t.includes(w))};
 
-const own={};let banned=[];
+const own={};let banned=[];let cfg={mult:1,banner:""};
+async function saveCfg(){if(UP)await rc(["HSET","cfg","mult",String(cfg.mult),"banner",cfg.banner||" "])}
+async function loadCfg(){if(UP){try{const r=await rc(["HGETALL","cfg"])||[];for(let i=0;i<r.length;i+=2){if(r[i]==="mult")cfg.mult=+r[i+1]||1;if(r[i]==="banner")cfg.banner=String(r[i+1]).trim()}}catch(e){}}}
 async function ownGet(n){return UP?await rc(["HGET","owners",n]):own[n]}
 async function ownSet(n,t){if(UP)await rc(["HSET","owners",n,t]);else own[n]=t}
 async function ownDel(n){if(UP)await rc(["HDEL","owners",n]);else delete own[n]}
@@ -129,9 +131,36 @@ async function mpState(r,pid){
     pl:P.map(p=>({n:p.name,s:p.score,d:!!p.ans})).sort((a,b)=>b.s-a.s),
     cur:live?{preview:c.preview,start:c.start,t0:c.t0,...(rev?{title:c.title,artist:c.artist,album:c.album,cover:c.cover}:{})}:null};
 }
-const VER="v9";
+const VER="v12";
 const ap=n=>[path.join(__dirname,"public",n),path.join(__dirname,n)].find(p=>fs.existsSync(p))||path.join(__dirname,"public",n);
 let YT={};try{YT=JSON.parse(fs.readFileSync(ap("youtube.json"),"utf8"))}catch(e){}
+// ---- YouTube peržiūros bet kuriam atlikėjui (kai pirmą kartą pasirenkamas „Daugiau / Mažiau“) ----
+const YKEY=process.env.YOUTUBE_API_KEY||"",ytDone=new Set();let ytQuota={d:"",n:0};
+async function ytPersist(map){if(UP&&Object.keys(map).length){const a=["HSET","yt"];for(const k in map)a.push(k,String(map[k]));await rc(a)}}
+async function loadYT(){if(!UP)return;try{const r=await rc(["HGETALL","yt"])||[];for(let i=0;i<r.length;i+=2)if(!YT[r[i]])YT[r[i]]=+r[i+1];(await rc(["SMEMBERS","ytdone"])||[]).forEach(x=>ytDone.add(x))}catch(e){}}
+async function ytLookup(artist,tracks){
+  const key=norm(artist);if(!YKEY||ytDone.has(key))return;
+  const d=day();if(ytQuota.d!==d)ytQuota={d,n:0};if(ytQuota.n>=75)return;ytQuota.n++;ytDone.add(key);
+  if(UP)try{await rc(["SADD","ytdone",key])}catch(e){}
+  const yget=async(p,pr)=>{const u=new URL((process.env.YT_BASE||"https://www.googleapis.com/youtube/v3/")+p);for(const k in pr)u.searchParams.set(k,pr[k]);u.searchParams.set("key",YKEY);return(await fetch(u)).json()};
+  const clean=x=>norm(String(x).replace(/\(.*?\)|\[.*?\]|official.*|music video.*|lyric.*/ig,""));
+  try{
+    const s=await yget("search",{part:"snippet",q:artist,type:"channel",maxResults:1});const ch=s.items&&s.items[0];if(!ch)return;
+    const ct=norm((ch.snippet&&ch.snippet.title)||"");if(!(ct&&(ct.includes(key)||key.includes(ct))))return; // kanalo pavadinimas turi atitikti atlikėją
+    const cid=(ch.id&&ch.id.channelId)||ch.snippet.channelId;
+    const c=await yget("channels",{part:"contentDetails",id:cid});const up=c.items&&c.items[0]&&c.items[0].contentDetails.relatedPlaylists.uploads;if(!up)return;
+    const vids=[];let tok="";
+    for(let i=0;i<10;i++){const pi=await yget("playlistItems",{part:"snippet",playlistId:up,maxResults:50,...(tok?{pageToken:tok}:{})});
+      (pi.items||[]).forEach(x=>vids.push({id:x.snippet.resourceId.videoId,t:x.snippet.title,v:0}));tok=pi.nextPageToken;if(!tok)break}
+    for(let i=0;i<vids.length;i+=50){const vs=await yget("videos",{part:"statistics",id:vids.slice(i,i+50).map(x=>x.id).join(",")});
+      (vs.items||[]).forEach(it=>{const x=vids.find(y=>y.id===it.id);if(x)x.v=+it.statistics.viewCount||0})}
+    const out={};
+    for(const tr of tracks){const tn=clean(tr.title);if(tn.length<3)continue;let best=0;
+      for(const x of vids){const vn=" "+clean(x.t).replace(key," ").replace(/\s+/g," ").trim()+" ";if(x.v&&vn.includes(" "+tn+" "))best=Math.max(best,x.v)}
+      if(best)out[tr.id]=best}
+    Object.assign(YT,out);await ytPersist(out);
+  }catch(e){}
+}
 const send=(res,code,obj)=>{res.writeHead(code,{"Content-Type":"application/json; charset=utf-8"});res.end(JSON.stringify(obj))};
 const server=http.createServer(async(req,res)=>{
   const u=new URL(req.url,"http://x"),q=u.searchParams,n=(q.get("a")||"").split("|").filter(Boolean),names=n.length?n:ARTISTS;
@@ -161,16 +190,28 @@ const server=http.createServer(async(req,res)=>{
     }
     if(u.pathname==="/admin"){try{res.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});return res.end(fs.readFileSync(ap("admin.html")))}catch(e){return send(res,404,{error:"Nerasta"})}}
     if(u.pathname==="/api/admin"&&req.method==="POST"){
-      const j=await readJ(req);if(!process.env.ADMIN_KEY)return send(res,403,{error:"Serveryje nenustatytas ADMIN_KEY (Render Environment)"});
+      const j=await readJ(req);
+      if(!process.env.ADMIN_KEY)return send(res,403,{error:"Serveryje nenustatytas ADMIN_KEY (Render Environment)"});
       if(j.key!==process.env.ADMIN_KEY)return send(res,403,{error:"Neteisingas raktas"});
+      const cl=x=>String(x||"").replace(/[<>&"]/g,"").trim().slice(0,16),dk="lb:"+day();
       if(j.del){await lbDel(String(j.del));await ownDel(String(j.del))}
-      if(j.rename&&j.rename.from&&j.rename.to){const b=String(j.rename.to).replace(/[<>&"]/g,"").trim().slice(0,16);if(b.length>=2){await lbRename(String(j.rename.from),b);const o=await ownGet(String(j.rename.from));await ownDel(String(j.rename.from));if(o!=null)await ownSet(b,o)}}
-      if(j.set&&j.set.n)await lbPut("lb:all",String(j.set.n),Math.max(0,Math.round(+j.set.p||0)));
-      if(j.clear==="day")await lbClear("lb:"+day());
+      if(j.rename&&j.rename.from&&cl(j.rename.to).length>=2){const f=String(j.rename.from),b=cl(j.rename.to),o=await ownGet(f);await lbRename(f,b);await ownDel(f);if(o!=null)await ownSet(b,o)}
+      if(j.set&&j.set.n)await lbPut(j.set.day?dk:"lb:all",String(j.set.n),Math.max(0,Math.round(+j.set.p||0)));
+      if(j.delta&&j.delta.n){const n=String(j.delta.n),d=Math.round(+j.delta.p||0);await lbPut("lb:all",n,Math.max(0,(await lbScore("lb:all",n))+d));if(j.delta.day)await lbPut(dk,n,Math.max(0,(await lbScore(dk,n))+d))}
+      if(j.addp&&cl(j.addp.n).length>=2){const n=cl(j.addp.n);await lbPut("lb:all",n,(await lbScore("lb:all",n))+Math.max(0,Math.round(+j.addp.p||0)))}
+      if(j.zero){await lbPut("lb:all",String(j.zero),0);await lbRem(dk,String(j.zero))}
+      if(j.free)await ownDel(String(j.free));
+      if(j.banplayer){const n=String(j.banplayer);await lbDel(n);await ownDel(n);const w=n.toLowerCase().slice(0,30);if(w&&!banned.includes(w)){banned.push(w);if(UP)await rc(["SADD","ban",w])}}
+      if(j.clear==="day")await lbClear(dk);
       if(j.clear==="all")await lbClear("lb:all");
       if(j.ban){const w=String(j.ban).trim().toLowerCase().slice(0,30);if(w&&!banned.includes(w)){banned.push(w);if(UP)await rc(["SADD","ban",w])}}
       if(j.unban){banned=banned.filter(x=>x!==j.unban);if(UP)await rc(["SREM","ban",String(j.unban)])}
-      return send(res,200,{all:await lbTop("lb:all",200),day:await lbTop("lb:"+day(),200),banned});
+      if(j.mult!=null){cfg.mult=Math.max(1,Math.min(10,Math.round(+j.mult)||1));await saveCfg()}
+      if(j.banner!=null){cfg.banner=String(j.banner).slice(0,160).trim();await saveCfg()}
+      if(j.closeRoom)rooms.delete(String(j.closeRoom).toUpperCase());
+      const all=await lbTop("lb:all",1000);
+      return send(res,200,{all:all.slice(0,200),day:await lbTop(dk,200),banned,cfg,saugykla:UP?"Upstash (nuolatinė)":"atmintis (išsivalo)",
+        stats:{zaidejai:all.length,taskai:all.reduce((a,x)=>a+x.p,0)},rooms:[...rooms.values()].map(r=>({code:r.code,players:Object.keys(r.players).length,phase:r.phase}))});
     }
     if(u.pathname==="/api/mp"&&req.method==="POST"){
       const j=await readJ(req),a=j.a,nm=s=>String(s||"").trim().slice(0,16)||"Žaidėjas";
@@ -197,6 +238,7 @@ const server=http.createServer(async(req,res)=>{
     if(u.pathname==="/api/hl"){
       const ex=q.get("ex"),c=(await pool(names)).filter(x=>String(x.id)!==ex);let t,f;
       const want=q.get("m")||"",needLF=want.startsWith("Last.fm"),needYT=want.startsWith("YouTube");
+      if(YKEY&&!want){for(const a of [...new Set(c.map(x=>x.artist))]){if(!c.some(x=>x.artist===a&&YT[x.id])&&!ytDone.has(norm(a))){await ytLookup(a,await tracksOf(a));break}}}
       if(!want||needYT){const cc=c.filter(x=>YT[x.id]);
         if(cc.length>=(needYT?1:2)){const t0=cc[Math.random()*cc.length|0];return send(res,200,{id:t0.id,title:t0.title,artist:t0.artist,cover:t0.coverBig||t0.cover,rank:YT[t0.id],metric:"YouTube peržiūrų skaičius"})}
         if(needYT)return send(res,500,{error:"YouTube duomenų nerasta"})}
@@ -212,9 +254,10 @@ const server=http.createServer(async(req,res)=>{
       return send(res,200,{id:f.id,title:f.title_short||f.title,artist:t.artist,cover:f.album&&(f.album.cover_big||f.album.cover_medium),rank:f.rank,metric:"Deezer populiarumo balas"});
     }
     if(u.pathname==="/api/version"){let iv=null;try{iv=(fs.readFileSync(ap("index.html"),"utf8").match(/app-version" content="([^"]+)"/)||[])[1]||null}catch(e){}
-      return send(res,200,{server:VER,index:iv,admin:fs.existsSync(ap("admin.html")),saugykla:UP?"Upstash (nuolatinė)":"atmintis (išsivalo)",lastfm:!!LF})}
+      return send(res,200,{server:VER,index:iv,admin:fs.existsSync(ap("admin.html")),saugykla:UP?"Upstash (nuolatinė)":"atmintis (išsivalo)",lastfm:!!LF,youtube:Object.keys(YT).length,youtubeRaktas:!!process.env.YOUTUBE_API_KEY})}
     if(u.pathname==="/api/me"){const n=String(q.get("n")||"").slice(0,16);let sc=0;
       if(UP){const r=await rc(["ZSCORE","lb:all",n]);sc=r==null?0:+r}else sc=(mem["lb:all"]||{})[n]||0;return send(res,200,{p:sc})}
+    if(u.pathname==="/api/banner")return send(res,200,{banner:cfg.banner,mult:cfg.mult});
     if(u.pathname==="/api/pool"){const p=await pool(names);return send(res,200,{t:p.map(x=>x.id),a:[...new Set(p.filter(x=>x.albumId).map(x=>x.albumId))]})}
     if(u.pathname==="/api/round")return send(res,200,await round(names,q.get("daily")==="1",q.get("mode")==="cover",q.get("id"),q.get("album"),q.get("year")==="1",q.get("opts")==="1"));
     if(u.pathname==="/api/search")return send(res,200,await search(q.get("q")||"",q.get("daily")==="1"?ARTISTS:names,q.get("album")==="1"));
@@ -229,15 +272,15 @@ const server=http.createServer(async(req,res)=>{
     res.writeHead(200,{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-cache",...(gz?{"Content-Encoding":"gzip"}:{})});res.end(gz?H.gz:H.raw);
   }catch(e){send(res,500,{error:e.message})}
 });
-if(process.argv.includes("--build")){(async()=>{const o={};for(const n of ARTISTS){o[n]=await deepTracks(n);console.log(n+":",o[n].length)}
-  fs.writeFileSync(path.join(__dirname,"songs.json"),JSON.stringify(o));console.log("Išsaugota songs.json");
+if(process.argv.includes("--build")||process.argv.includes("--youtube")){(async()=>{const o={};if(process.argv.includes("--youtube")){Object.assign(o,JSON.parse(fs.readFileSync(ap("songs.json"),"utf8")))}else for(const n of ARTISTS){o[n]=await deepTracks(n);console.log(n+":",o[n].length)}
+  if(!process.argv.includes("--youtube")){fs.writeFileSync(path.join(__dirname,"songs.json"),JSON.stringify(o));console.log("Išsaugota songs.json");}
     const YK=process.env.YOUTUBE_API_KEY;
     if(YK){
       const yget=async(p,pr)=>{const u=new URL("https://www.googleapis.com/youtube/v3/"+p);for(const k in pr)u.searchParams.set(k,pr[k]);u.searchParams.set("key",YK);return(await fetch(u)).json()};
       const clean=x=>norm(String(x).replace(/\(.*?\)|\[.*?\]|official.*|music video.*|lyric.*/ig,""));
       const yt={};
       for(const n of ARTISTS){
-        try{
+        if(!o[n])continue;try{
           const s=await yget("search",{part:"snippet",q:n,type:"channel",maxResults:1});const ch=s.items&&s.items[0];if(!ch){console.log("YouTube: nerastas kanalas",n);continue}
           const cid=(ch.id&&ch.id.channelId)||ch.snippet.channelId;
           const c=await yget("channels",{part:"contentDetails,snippet",id:cid});const up=c.items&&c.items[0]&&c.items[0].contentDetails.relatedPlaylists.uploads;if(!up)continue;
@@ -256,4 +299,4 @@ if(process.argv.includes("--build")){(async()=>{const o={};for(const n of ARTIST
       fs.writeFileSync(path.join(__dirname,"youtube.json"),JSON.stringify(yt));console.log("Išsaugota youtube.json (dainų:",Object.keys(yt).length+")");
     }else console.log("YOUTUBE_API_KEY nenustatytas, youtube.json nesukurtas");
     process.exit(0)})();}
-else server.listen(PORT,()=>{console.log("Atidaryk http://localhost:"+PORT);loadBans();if(Object.keys(SNAP).length<ARTISTS.length)pool(ARTISTS).then(p=>console.log("Paruošta dainų:",p.length)).catch(()=>{})});
+else server.listen(PORT,()=>{console.log("Atidaryk http://localhost:"+PORT);loadBans();loadCfg();loadYT();if(Object.keys(SNAP).length<ARTISTS.length)pool(ARTISTS).then(p=>console.log("Paruošta dainų:",p.length)).catch(()=>{})});

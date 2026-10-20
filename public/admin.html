@@ -1,25 +1,46 @@
 <!DOCTYPE html>
 <html lang="lt"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Admin</title>
-<style>body{font-family:system-ui,sans-serif;max-width:640px;margin:20px auto;padding:0 12px}input,button{font:inherit;padding:10px;font-size:16px}.r{display:flex;align-items:center;gap:6px;padding:8px 0;border-bottom:1px solid #ccc}.r span{flex:1;overflow:hidden;text-overflow:ellipsis}.r button{padding:6px 8px;font-size:14px}#o{margin-top:12px}.err{color:#b00}.tag{display:inline-block;background:#eee;border-radius:12px;padding:4px 10px;margin:3px}</style></head>
-<body><h2>Lyderių lentelė (admin)</h2>
+<style>body{font-family:system-ui,sans-serif;max-width:680px;margin:20px auto;padding:0 12px}input,button,select{font:inherit;padding:9px;font-size:16px}h3{margin:22px 0 8px}.r{display:flex;align-items:center;gap:6px;padding:7px 0;border-bottom:1px solid #ccc}.r span{flex:1;overflow:hidden;text-overflow:ellipsis}.r select{max-width:170px;font-size:14px;padding:6px}.err{color:#b00}.tag{display:inline-block;background:#eee;border-radius:12px;padding:4px 10px;margin:3px}.box{background:#f4f4f4;padding:10px;border-radius:8px}</style></head>
+<body><h2>Admin</h2>
 <input id="k" type="password" placeholder="Admin raktas"> <button id="go">Rodyti</button>
-<p><button id="cd">Išvalyti šiandienos</button> <button id="ca">Išvalyti viską</button></p>
+<div id="st" class="box" hidden></div>
+<h3>Renginys ir skelbimas</h3>
+<div class="box">Taškų daugiklis lentelėje: <select id="mu"><option>1</option><option>2</option><option>3</option><option>5</option><option>10</option></select><br><br>
+<input id="bn" placeholder="Skelbimas puslapio viršuje" style="width:92%"><br><br><button id="sv">Išsaugoti</button></div>
+<h3>Pridėti žaidėją</h3><input id="an" placeholder="vardas"> <input id="ap" type="number" placeholder="taškai" style="width:90px"> <button id="ab">Pridėti</button>
+<p><button id="cd">Išvalyti šiandienos</button> <button id="ca">Išvalyti viską</button> <button id="ex">Eksportuoti JSON</button></p>
 <div id="o">Įrašyk ADMIN_KEY reikšmę ir paspausk „Rodyti“.</div>
+<h3>Multiplayer kambariai</h3><div id="rm"></div>
 <h3>Draudžiami vardų žodžiai</h3><input id="bw" placeholder="žodis"> <button id="ba">Pridėti</button><div id="bl"></div>
 <script>
-var $=function(i){return document.getElementById(i)};
+var $=function(i){return document.getElementById(i)},last=null;
 function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
 function api(b){b.key=$("k").value;return fetch("/api/admin",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)}).then(function(r){return r.json()})}
-function rows(t,l,full){return "<h3>"+t+"</h3>"+(l.length?l.map(function(x){var n=esc(x.n);return '<div class="r"><span>'+n+'</span><b>'+x.p+'</b>'+(full?'<button data-a="ren" data-n="'+n+'">Vardas</button><button data-a="set" data-n="'+n+'">Taškai</button>':'')+'<button data-a="del" data-n="'+n+'">Ištrinti</button></div>'}).join(""):"<p>Tuščia</p>")}
-function show(d){if(d.error){$("o").innerHTML='<span class="err">'+esc(d.error)+'</span>';return}$("o").innerHTML=rows("Viso",d.all,1)+rows("Šiandien",d.day,0);$("bl").innerHTML=(d.banned&&d.banned.length)?d.banned.map(function(w){return '<span class="tag">'+esc(w)+' <a href="#" data-u="'+esc(w)+'">x</a></span>'}).join(""):"Nėra"}
+var FULL='<option value="">Veiksmas...</option><option value="delta">Pridėti / atimti taškus</option><option value="set">Nustatyti taškus</option><option value="zero">Nulinti</option><option value="ren">Pervadinti / sujungti</option><option value="free">Atlaisvinti vardą</option><option value="del">Ištrinti</option><option value="banp">Ištrinti ir uždrausti</option>';
+var DAY='<option value="">Veiksmas...</option><option value="delta">Pridėti / atimti taškus</option><option value="set">Nustatyti taškus</option><option value="del">Ištrinti</option>';
+function rows(t,l,day){return "<h3>"+t+"</h3>"+(l.length?l.map(function(x){var n=esc(x.n);return '<div class="r"><span>'+n+'</span><b>'+x.p+'</b><select data-n="'+n+'" data-d="'+(day?1:0)+'">'+(day?DAY:FULL)+'</select></div>'}).join(""):"<p>Tuščia</p>")}
+function show(d){if(d.error){$("o").innerHTML='<span class="err">'+esc(d.error)+'</span>';return}last=d;
+ $("st").hidden=false;$("st").innerHTML="Žaidėjų lentelėje: <b>"+d.stats.zaidejai+"</b> · taškų iš viso: <b>"+d.stats.taskai+"</b> · saugykla: <b>"+esc(d.saugykla)+"</b> · daugiklis: <b>x"+d.cfg.mult+"</b>";
+ if(document.activeElement!==$("bn"))$("bn").value=d.cfg.banner||"";if(document.activeElement!==$("mu"))$("mu").value=String(d.cfg.mult);
+ $("o").innerHTML=rows("Viso",d.all,0)+rows("Šiandien",d.day,1);
+ $("rm").innerHTML=d.rooms.length?d.rooms.map(function(r){return '<div class="r"><span>'+esc(r.code)+' · '+r.players+' žaid. · '+esc(r.phase)+'</span><button data-c="'+esc(r.code)+'">Uždaryti</button></div>'}).join(""):"Nėra";
+ $("bl").innerHTML=(d.banned&&d.banned.length)?d.banned.map(function(w){return '<span class="tag">'+esc(w)+' <a href="#" data-u="'+esc(w)+'">x</a></span>'}).join(""):"Nėra"}
 function run(b){api(b).then(show).catch(function(){$("o").innerHTML='<span class="err">Serveris neatsako arba tai sena serverio versija (atidaryk /api/version)</span>'})}
 $("go").onclick=function(){$("o").textContent="Kraunama...";run({})};$("k").onkeydown=function(e){if(e.key==="Enter")$("go").onclick()};
 $("cd").onclick=function(){if(confirm("Išvalyti šiandienos lentelę?"))run({clear:"day"})};
 $("ca").onclick=function(){if(confirm("IŠVALYTI VISĄ lentelę?"))run({clear:"all"})};
+$("sv").onclick=function(){run({mult:+$("mu").value,banner:$("bn").value})};
+$("ab").onclick=function(){var n=$("an").value.trim(),p=+$("ap").value;if(n.length>=2){run({addp:{n:n,p:p||0}});$("an").value="";$("ap").value=""}};
 $("ba").onclick=function(){var w=$("bw").value.trim();if(w){run({ban:w});$("bw").value=""}};
 $("bl").onclick=function(e){var a=e.target.closest("a");if(a){e.preventDefault();run({unban:a.getAttribute("data-u")})}};
-$("o").onclick=function(e){var b=e.target.closest("button");if(!b)return;var n=b.getAttribute("data-n"),a=b.getAttribute("data-a");
- if(a==="del"){if(confirm("Ištrinti "+n+"?"))run({del:n})}
- else if(a==="ren"){var t=prompt("Naujas vardas:",n);if(t)run({rename:{from:n,to:t}})}
- else if(a==="set"){var p=prompt("Nauji taškai (viso) vardui "+n+":");if(p!==null&&p!=="")run({set:{n:n,p:+p}})}};
+$("rm").onclick=function(e){var b=e.target.closest("button");if(b)run({closeRoom:b.getAttribute("data-c")})};
+$("ex").onclick=function(){if(!last)return;var a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify({viso:last.all,siandien:last.day},null,1)],{type:"application/json"}));a.download="lyderiai.json";a.click()};
+$("o").onchange=function(e){var s=e.target;if(s.tagName!=="SELECT"||!s.value)return;var n=s.getAttribute("data-n"),d=s.getAttribute("data-d")==="1",a=s.value;s.value="";
+ if(a==="delta"){var p=prompt("Kiek taškų pridėti (neigiamas skaičius atima):","10");if(p)run({delta:{n:n,p:+p,day:d}})}
+ else if(a==="set"){var q=prompt("Nauji taškai:");if(q!==null&&q!=="")run({set:{n:n,p:+q,day:d}})}
+ else if(a==="zero"){if(confirm("Nulinti "+n+"?"))run({zero:n})}
+ else if(a==="ren"){var t=prompt("Naujas vardas (jei toks jau yra, taškai sudedami):",n);if(t)run({rename:{from:n,to:t}})}
+ else if(a==="free"){run({free:n})}
+ else if(a==="del"){if(confirm("Ištrinti "+n+"?"))run({del:n})}
+ else if(a==="banp"){if(confirm("Ištrinti ir uždrausti vardą "+n+"?"))run({banplayer:n})}};
 </script></body></html>

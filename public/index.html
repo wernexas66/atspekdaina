@@ -20,7 +20,7 @@
 <meta name="twitter:description" content="Atspėk lietuvišką dainą iš 0,2 sekundės. Klipai, albumų viršeliai, 60 s iššūkis ir dienos daina. Nemokamai ir be registracijos.">
 <meta name="twitter:image" content="__ORIGIN__/og.png">
 <meta name="theme-color" content="#0b1b28">
-<meta name="app-version" content="v9">
+<meta name="app-version" content="v12">
 <link rel="canonical" href="https://atspekdaina.eu/">
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Atspėk dainą","url":"https://atspekdaina.eu/","description":"Nemokamas lietuviškų dainų spėjimo žaidimas: atspėk dainą iš trumpo klipo.","applicationCategory":"GameApplication","image":"https://atspekdaina.eu/og.png","operatingSystem":"Any","inLanguage":"lt","offers":{"@type":"Offer","price":"0","priceCurrency":"EUR"}}</script>
 <link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" type="image/png" sizes="96x96" href="/favicon.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -238,6 +238,7 @@ body{align-items:flex-start;gap:24px}
 .stamp.ok{color:#3dff9a;background:#062a1acc}.stamp.bad{color:#ff5a4a;background:#2a0b08cc}
 @media (max-width:520px){.stamp{font-size:1.4rem;padding:4px 12px}}
 .mpmsg{font-size:1.5rem;font-weight:800;margin:6px 0;min-height:1.6em}
+.banner{background:var(--amber);color:#1b1405;padding:10px 14px;border-radius:12px;margin-bottom:12px;font-weight:700;text-align:center}
 </style>
 </head>
 <body>
@@ -262,6 +263,7 @@ body{align-items:flex-start;gap:24px}
   </div>
 </div>
 <main>
+  <div class="banner" id="banner" hidden></div>
   <header>
     <h1>Atspėk<br>dainą</h1>
     <div class="score"><b id="score">0</b>taškai · serija <span id="streak">0</span> · rekordas <span id="best">0</span><br><a href="#" id="nickLink" class="nicklink">Slapyvardis</a></div>
@@ -299,7 +301,7 @@ body{align-items:flex-start;gap:24px}
     <div class="err" id="err" hidden></div>
   </section>
   <div id="reveal" hidden></div>
-  <footer>Muzikos peržiūros: <a href="https://www.deezer.com" target="_blank" rel="noopener">Deezer</a><span id="sup" hidden> · <a id="supA" target="_blank" rel="noopener"> Paremti projektą</a></span><span class="ver"> · v9</span></footer>
+  <footer>Muzikos peržiūros: <a href="https://www.deezer.com" target="_blank" rel="noopener">Deezer</a><span id="sup" hidden> · <a id="supA" target="_blank" rel="noopener"> Paremti projektą</a></span><span class="ver"> · v12</span></footer>
   <p class="seo">Atspėk dainą yra nemokamas lietuvių muzikos žaidimas. Klausykis trumpo dainos klipo, atspėk pavadinimą, žaisk dienos dainą, viršelių režimą arba su draugais.</p>
 </main>
 <aside class="lb" id="lb"><h3>Lyderiai</h3><div class="lbtabs"><button id="lbDay" class="on">Šiandien</button><button id="lbAll">Viso</button></div><ol id="lbList"></ol><input type="text" id="lbNick" maxlength="16" placeholder="Slapyvardis (spausk, kad pakeistum)" autocomplete="off" readonly><button class="lbbtn" id="lbNickBtn">Keisti slapyvardį</button><p class="lbhint" id="lbHint"></p></aside>
@@ -462,10 +464,14 @@ function prep(cb){
 function playClip(len,fwd){
   if(mode==="reverse"&&revBuf&&!fwd){playRev(len);return}
   clearTimeout(timer);audio.pause();audio.onseeked=null;audio.onplaying=null;
-  let started=false;const near=()=>Math.abs(audio.currentTime-start)<0.4;
-  const begin=()=>{if(started||!near())return;started=true;audio.onplaying=null;audio.onseeked=null;audio.muted=false;setFill(len/15*100,len);clearTimeout(timer);timer=setTimeout(stopAudio,len*1000)};
-  audio.muted=!near();audio.onplaying=begin;audio.onseeked=()=>{if(!audio.paused)begin()};
-  if(!near()){try{audio.currentTime=start}catch(e){}}
+  let started=false,wd;
+  // laikmatis paleidžiamas tik kai garsas tikrai pradėjo groti klipo pradžioje; atsarginis laikmatis neleidžia groti be galo
+  const begin=()=>{if(started)return;started=true;clearTimeout(wd);audio.onplaying=null;audio.onseeked=null;audio.muted=false;setFill(len/15*100,len);clearTimeout(timer);timer=setTimeout(stopAudio,len*1000)};
+  if(Math.abs(audio.currentTime-start)>0.05){
+    audio.muted=true;audio.onseeked=()=>{start=audio.currentTime;begin()};
+    try{audio.currentTime=start}catch(e){begin()}
+  }else{audio.muted=false;audio.onplaying=begin}
+  wd=setTimeout(begin,1500);
   const pr=audio.play();if(pr&&pr.catch)pr.catch(()=>{});setPlaying(true);
 }
 function advance(){if(stage>=STAGES.length-1)return finish(false);stage++;draw();if(mode!=="cover")playClip(STAGES[stage]);}
@@ -535,6 +541,7 @@ async function askNick(){
 }
 $("lbToggle").onclick=e=>{e.stopPropagation();$("lb").classList.toggle("open")};$("lbNick").onchange=syncScore;$("nickLink").onclick=e=>{e.preventDefault();askNick()};$("lbNickBtn").onclick=askNick;$("nickBtn2").onclick=askNick;
 setInterval(loadLb,30000);loadLb();syncScore();
+fetch("/api/banner").then(r=>r.json()).then(c=>{const t=[c.mult>1?"Taškų daugiklis lentelėje: x"+c.mult+"!":"",c.banner].filter(Boolean).join(" ");if(t){$("banner").textContent=t;$("banner").hidden=false}}).catch(()=>{});
 /* ----- multiplayer ----- */
 let mpVoted=false,mpMe="",mpC="",mpP="",mpT=null,mpK="",mpOff=0,mpNames=[],mpTO;
 const mpPost=async o=>{try{return await(await fetch("/api/mp",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(o)})).json()}catch(e){return{err:"Nėra ryšio"}}};
